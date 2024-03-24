@@ -33,16 +33,23 @@ public class Application {
     }
 
     private static void startWithBootstrap() {
+        // 服务配置信息封装
         ServiceConfig<DemoServiceImpl> service = new ServiceConfig<>();
+        // 服务暴露接口
         service.setInterface(DemoService.class);
+        // 服务暴露接口的实现
         service.setRef(new DemoServiceImpl());
 
         DubboBootstrap bootstrap = DubboBootstrap.getInstance();
         bootstrap
+                // 服务名称
                 .application(new ApplicationConfig("dubbo-demo-api-provider"))
+                // 注册中心地址
                 .registry(new RegistryConfig(REGISTRY_URL))
+                // 使用 DUBBO 协议
                 .protocol(new ProtocolConfig(CommonConstants.DUBBO, -1))
                 .service(service)
+                // 服务启动
                 .start()
                 .await();
     }
