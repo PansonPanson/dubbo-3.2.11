@@ -221,6 +221,7 @@ public final class DubboBootstrap {
     }
 
     /**
+     * 服务启动
      * Start dubbo application
      *
      * @param wait If true, wait for startup to complete, or else no waiting.

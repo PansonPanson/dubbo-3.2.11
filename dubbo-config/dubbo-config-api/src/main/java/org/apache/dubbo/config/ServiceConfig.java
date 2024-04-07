@@ -305,6 +305,7 @@ public class ServiceConfig<T> extends ServiceConfigBase<T> {
 
     @Override
     public void export(RegisterTypeEnum registerType) {
+        // 已经启动过了，无需再次启动（volatile 修饰）
         if (this.exported) {
             return;
         }
