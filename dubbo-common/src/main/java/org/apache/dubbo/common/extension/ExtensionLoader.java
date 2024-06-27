@@ -112,22 +112,42 @@ public class ExtensionLoader<T> {
     private static final Pattern NAME_SEPARATOR = Pattern.compile("\\s*[,]+\\s*");
     private static final String SPECIAL_SPI_PROPERTIES = "special_spi.properties";
 
+    /**
+     * 该集合缓存了扩展实现类与其实例对象的映射关系。例如：Key 为 Class，Value 为 DubboProtocol 对象
+     */
     private final ConcurrentMap<Class<?>, Object> extensionInstances = new ConcurrentHashMap<>(64);
 
+    /**
+     * 当前 ExtensionLoader 实例负责加载扩展接口
+     */
     private final Class<?> type;
 
     private final ExtensionInjector injector;
 
+    /**
+     * 缓存了该 ExtensionLoader 加载的扩展实现类与扩展名之间的映射关系
+     */
     private final ConcurrentMap<Class<?>, String> cachedNames = new ConcurrentHashMap<>();
 
+    /**
+     * 缓存了该 ExtensionLoader 加载的扩展名与扩展实现类之间的映射关系。cachedNames 集合的反向关系缓存
+     */
     private final Holder<Map<String, Class<?>>> cachedClasses = new Holder<>();
 
     private final Map<String, Object> cachedActivates = Collections.synchronizedMap(new LinkedHashMap<>());
     private final Map<String, Set<String>> cachedActivateGroups = Collections.synchronizedMap(new LinkedHashMap<>());
     private final Map<String, String[][]> cachedActivateValues = Collections.synchronizedMap(new LinkedHashMap<>());
+
+    /**
+     * 缓存了该 ExtensionLoader 加载的扩展名与扩展实现对象之间的映射关系
+     */
     private final ConcurrentMap<String, Holder<Object>> cachedInstances = new ConcurrentHashMap<>();
     private final Holder<Object> cachedAdaptiveInstance = new Holder<>();
     private volatile Class<?> cachedAdaptiveClass = null;
+
+    /**
+     * 记录了 type 这个扩展接口上 @SPI 注解的 value 值，也就是默认扩展名
+     */
     private String cachedDefaultName;
     private volatile Throwable createAdaptiveInstanceError;
 
