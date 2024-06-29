@@ -1,15 +1,24 @@
-# Origin Repository
+ # Origin Repository
 https://github.com/apache/dubbo
+
 
 #  Dubbo 3.x 版本源码阅读系列
 
-#### 1 搭建 Dubbo 源码阅读环境
+#### 搭建 Dubbo 源码阅读环境
 
-#### 2 Docker 部署 Zookeeper，debug 测试用例
+#### Docker 部署 Zookeeper，debug 测试用例
 
-#### 3 Dubbo producer 的启动主流程
+#### Dubbo producer 的启动主流程
 
-#### 4 Dubbo consumer 的启动主流程
+#### Dubbo consumer 的启动主流程
+
+####  URL 配置
+
+#### Dubbo 的时间轮
+
+
+
+
 
 
 # License

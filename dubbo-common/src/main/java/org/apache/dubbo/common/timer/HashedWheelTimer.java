@@ -580,7 +580,14 @@ public class HashedWheelTimer implements Timer {
          * This will be used to chain timeouts in HashedWheelTimerBucket via a double-linked-list.
          * As only the workerThread will act on it there is no need for synchronization / volatile.
          */
+        /**
+         * 当前定时任务在链表中的后继节点
+         */
         HashedWheelTimeout next;
+
+        /**
+         * 当前定时任务在链表中的前驱节点
+         */
         HashedWheelTimeout prev;
 
         /**
