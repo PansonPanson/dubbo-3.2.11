@@ -81,6 +81,39 @@ import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_ERROR
  * and Hierarchical Timing Wheels: data structures to efficiently implement a
  * timer facility'</a>.  More comprehensive slides are located
  * <a href="http://www.cse.wustl.edu/~cdgill/courses/cs6874/TimingWheels.ppt">here</a>.
+ * Timer 接口的实现，通过时间轮算法实现了一个定时器。
+ *
+ * HashedWheelTimer 会根据当前时间轮指针选定对应的槽（HashedWheelBucket），从双向链表的头部开始迭代，
+ * 对每个定时任务（HashedWheelTimeout）进行计算，属于当前时钟周期则取出运行，不属于则将其剩余的时钟周期数减一操作。
+ *
+ * 时间轮对外提供了一个 newTimeout() 接口用于提交定时任务，在定时任务进入到 timeouts 队列之前会先调用 start() 方法启动时间轮，其中会完成下面两个关键步骤：
+ *
+ *  1. 确定时间轮的 startTime 字段；
+ *  2. 启动 workerThread 线程，开始执行 worker 任务。
+ *
+ * 之后根据 startTime 计算该定时任务的 deadline 字段，最后才能将定时任务封装成 HashedWheelTimeout 并添加到 timeouts 队列
+ *
+ *
+ * 时间轮指针一次转动的全流程。
+ *
+ * 1. 时间轮指针转动，时间轮周期开始。
+ * 2. 清理用户主动取消的定时任务，这些定时任务在用户取消时，会记录到 cancelledTimeouts 队列中。在每次指针转动的时候，时间轮都会清理该队列。
+ * 3. 将缓存在 timeouts 队列中的定时任务转移到时间轮中对应的槽中。
+ * 4. 根据当前指针定位对应槽，处理该槽位的双向链表中的定时任务。
+ * 5. 检测时间轮的状态。如果时间轮处于运行状态，则循环执行上述步骤，不断执行定时任务。如果时间轮处于停止状态，则执行下面的步骤获取到未被执行的定时任务并加入 unprocessedTimeouts 队列：
+ *      遍历时间轮中每个槽位，并调用 clearTimeouts() 方法；对 timeouts 队列中未被加入槽中循环调用 poll()。
+ * 6. 最后再次清理 cancelledTimeouts 队列中用户主动取消的定时任务。
+ *
+ *
+ *
+ * Dubbo 中如何使用定时任务
+ * 在 Dubbo 中，时间轮并不直接用于周期性操作，而是只向时间轮提交执行单次的定时任务，在上一次任务执行完成的时候，
+ * 调用 newTimeout() 方法再次提交当前任务，这样就会在下个周期执行该任务。即使在任务执行过程中出现了 GC、I/O 阻塞等情况，导致任务延迟或卡住，也不会有同样的任务源源不断地提交进来，导致任务堆积。
+ *
+ * Dubbo 中对时间轮的应用主要体现在如下两个方面：
+ *
+ * 1. 失败重试， 例如，Provider 向注册中心进行注册失败时的重试操作，或是 Consumer 向注册中心订阅时的失败重试等。
+ * 2. 周期性定时任务， 例如，定期发送心跳请求，请求超时的处理，或是网络连接断开后的重连机制。
  */
 public class HashedWheelTimer implements Timer {
 
@@ -97,7 +130,14 @@ public class HashedWheelTimer implements Timer {
     private static final AtomicIntegerFieldUpdater<HashedWheelTimer> WORKER_STATE_UPDATER =
         AtomicIntegerFieldUpdater.newUpdater(HashedWheelTimer.class, "workerState");
 
+    /**
+     * 真正执行定时任务的逻辑封装这个 Runnable 对象中
+     */
     private final Worker worker = new Worker();
+
+    /**
+     * 时间轮内部真正执行定时任务的线程
+     */
     private final Thread workerThread;
 
     private static final int WORKER_STATE_INIT = 0;
@@ -110,15 +150,39 @@ public class HashedWheelTimer implements Timer {
     @SuppressWarnings({"unused", "FieldMayBeFinal"})
     private volatile int workerState;
 
+    /**
+     * 时间指针每次加 1 所代表的实际时间，单位为纳秒
+     */
     private final long tickDuration;
+
+    /**
+     * 该数组就是时间轮的环形队列，每一个元素都是一个槽。
+     * 当指定时间轮槽数为 n 时，实际上会取大于且最靠近 n 的 2 的幂次方值
+     */
     private final HashedWheelBucket[] wheel;
+
+    /**
+     * 掩码， mask = wheel.length - 1，执行 ticks & mask 便能定位到对应的时钟槽。
+     */
     private final int mask;
     private final CountDownLatch startTimeInitialized = new CountDownLatch(1);
+
+    /**
+     * timeouts 队列用于缓存外部提交时间轮中的定时任务，cancelledTimeouts 队列用于暂存取消的定时任务。
+     * HashedWheelTimer 会在处理 HashedWheelBucket 的双向链表之前，先处理这两个队列中的数据
+     */
     private final Queue<HashedWheelTimeout> timeouts = new LinkedBlockingQueue<>();
     private final Queue<HashedWheelTimeout> cancelledTimeouts = new LinkedBlockingQueue<>();
+
+    /**
+     * 当前时间轮剩余的定时任务总数
+     */
     private final AtomicLong pendingTimeouts = new AtomicLong(0);
     private final long maxPendingTimeouts;
 
+    /**
+     * 当前时间轮的启动时间，提交到该时间轮的定时任务的 deadline 字段值均以该时间戳为起点进行计算。
+     */
     private volatile long startTime;
 
     /**
@@ -429,6 +493,9 @@ public class HashedWheelTimer implements Timer {
     private final class Worker implements Runnable {
         private final Set<Timeout> unprocessedTimeouts = new HashSet<Timeout>();
 
+        /**
+         * 一个步长为 1 的单调递增计数器
+         */
         private long tick;
 
         @Override
